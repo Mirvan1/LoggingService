@@ -1,7 +1,10 @@
 ﻿using System;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using MassTransit;
+using Microsoft.VisualBasic;
 using Newtonsoft.Json.Linq;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 
 var busControl = Bus.Factory.CreateUsingRabbitMq(cfg =>
@@ -24,6 +27,13 @@ var busControl = Bus.Factory.CreateUsingRabbitMq(cfg =>
 await busControl.StartAsync();
 try
 {
+
+    //Trace = 0
+    //Debug = 1
+    //Information = 2
+    //Warning = 3
+    //Error = 4
+    //Critical = 5
     JObject jsonMessage = new JObject
             {
                 { "Service", "TestLogService" },

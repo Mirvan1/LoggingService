@@ -47,6 +47,8 @@ Log.Logger = new LoggerConfiguration()
  .Filter.ByExcluding(logEvent =>
         logEvent.Properties.TryGetValue("SourceContext", out var sourceContext) &&
         (sourceContext.ToString().Contains("Microsoft") || sourceContext.ToString().Contains("System") || sourceContext.ToString().Contains("MassTransit")
+        || sourceContext.ToString().Contains("Hangfire")
+        || sourceContext.ToString().Contains("Hangfire.Server")
 )
     ).WriteTo.Console()
     .WriteTo.MSSqlServer(
