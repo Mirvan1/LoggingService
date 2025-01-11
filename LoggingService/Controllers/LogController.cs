@@ -13,20 +13,17 @@ namespace LoggingService.Controllers;
 public class LogController : ControllerBase
 {
     public ILogSevice _logService;
-    IPublishEndpoint publishEndpoint;
-    public LogController(ILogSevice logService, IPublishEndpoint publishEndpoint)
+    public LogController(ILogSevice logService)
 
     {
         _logService = logService;
-        this.publishEndpoint = publishEndpoint;
     }
 
     [HttpPost]
-    public async Task<IActionResult> WriteLog([FromBody]LogDto request)
+    public IActionResult WriteLog([FromBody]LogDto request)
     {
         if (request == null) { return BadRequest(); }
         _logService.WriteLog(request);
-        await publishEndpoint.Publish(request);
         return Ok();
     }
 }
