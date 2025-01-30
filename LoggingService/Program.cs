@@ -56,7 +56,7 @@ Log.Logger = new LoggerConfiguration()
         sinkOptions: new MSSqlServerSinkOptions
         {
             TableName = "Logs",
-            AutoCreateSqlTable = false
+            AutoCreateSqlTable = true
         },
         columnOptions: columnOptions,
         restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Information
@@ -103,17 +103,18 @@ builder.Services.AddTransient<CleanOldLogJobs>();
 
 var app = builder.Build();
 
+
 using (var scope = app.Services.CreateScope())
 {
     var jobScheduler = scope.ServiceProvider.GetRequiredService<CleanOldLogJobs>();
     jobScheduler.CleanLogs();
 }
 
-if (app.Environment.IsDevelopment())
-{
+//if (app.Environment.IsDevelopment())
+//{
     app.UseSwagger();
     app.UseSwaggerUI();
-}
+//  }
 app.UseHangfireDashboard();
 
 app.UseHttpsRedirection();

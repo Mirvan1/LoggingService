@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  logging-service: 
+    image: logging-service
+    build:
+      context: LoggingService
+      dockerfile: DockerFile
+    ports:
+      - "8081:80"
+    environment:
+      - ConnectionStrings__LogConnectionString=Server=db,1433;Database=LoggingDB;User Id=sa;Password=DockerDbPassword12345.!;TrustServerCertificate=true;
+      - ConnectionStrings__HangFireConnectionString=Server=db,1433;Database=HangFireLoggingDB;User Id=sa;Password=DockerDbPassword12345.!;TrustServerCertificate=true;
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_started
+      seq:
+        condition: service_started
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      MSSQL_SA_PASSWORD: "DockerDbPassword12345.!"
+      ACCEPT_EULA: "Y"
+    ports:
+      - "1434:1433"
+    volumes:
+      - sqlvolume:/var/opt/mssql
+      - ./sql-init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: [ "CMD", "/opt/mssql-tools/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", "DockerDbPassword12345.!", "-Q", "SELECT 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  seq:
+    image: datalust/seq:latest
+    environment:
+      - ACCEPT_EULA=Y
+    ports:
+      - "5342:5341"
+      - "8082:80"
+    volumes:
+      - seqdata:/data:z
+
+volumes:
+  sqlvolume:
+  seqdata:
