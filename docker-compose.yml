@@ -9,14 +9,13 @@ services:
     ports:
       - "8081:80"
     environment:
-      - ConnectionStrings__AdminConnectionString=Host=db;Database=postgres;Username=postgres;Password=postgres
-      - ConnectionStrings__LogConnectionString=Host=db;Database=LoggingDB;Username=postgres;Password=postgres
-      - ConnectionStrings__HangFireConnectionString=Host=db;Database=HangFireLoggingDB;Username=postgres;Password=postgres
+      - ConnectionStrings__AdminConnection=Host=db;Database=postgres;Username=postgres;Password=postgres
+      - ConnectionStrings__LogConnection=Host=db;Database=LoggingDB;Username=postgres;Password=postgres
+      - ConnectionStrings__HangFireConnection=Host=db;Database=HangFireLoggingDB;Username=postgres;Password=postgres
       - RabbitMQConfig__Host=rabbitmq
       - RabbitMQConfig__Username=guest
       - RabbitMQConfig__Password=guest
       - SeqUrl=http://seq:5341
-
     depends_on:
       db:
         condition: service_healthy
@@ -39,13 +38,16 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: postgres
+      POSTGRES_DB: postgres  # Default maintenance database
     ports:
       - "5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -h localhost"]
+      test: >
+        bash -c 
+        "pg_isready -U postgres -d LoggingDB && 
+         pg_isready -U postgres -d HangFireLoggingDB"
       interval: 10s
       timeout: 5s
       retries: 10
@@ -63,7 +65,3 @@ services:
 volumes:
   db_data:
   seqdata:
-
-
-
-

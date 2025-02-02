@@ -63,10 +63,18 @@ string adminConn = builder.Configuration.GetConnectionString("AdminConnectionStr
 //    Console.WriteLine("Erro: " + ex.Message);
 //}
 
+ if (!DatabaseExists("LoggingDB", adminConn))
+{
+    CreateDatabase("LoggingDB", adminConn);
+}
+
+ if (!DatabaseExists("HangFireLoggingDB", adminConn))
+{
+    CreateDatabase("HangFireLoggingDB", adminConn);
+}
 
 
-
-builder.Services.AddScoped<ILogSevice,LogService> ();
+builder.Services.AddScoped<ILogSevice, LogService>();
 
 
 
@@ -91,8 +99,7 @@ var columnWriters = new Dictionary<string, ColumnWriterBase>
     { "message", new RenderedMessageColumnWriter() },
     { "exception", new ExceptionColumnWriter() },
 
-    // Additional columns that you want to store
-    { "ServiceName", new RenderedMessageColumnWriter() },
+     { "ServiceName", new RenderedMessageColumnWriter() },
     { "LogLevel", new RenderedMessageColumnWriter() },
     { "LogMessage", new RenderedMessageColumnWriter() },
     { "LogId", new RenderedMessageColumnWriter() }
@@ -109,8 +116,7 @@ Log.Logger = new LoggerConfiguration()
     .WriteTo.Seq(builder.Configuration.GetValue<string>("SeqUrl"))
     .Enrich.FromLogContext()
     .Enrich.WithProperty("Environment", builder.Environment.EnvironmentName)
-    // Filtering out logs from certain namespaces if desired:
-    .Filter.ByExcluding(logEvent =>
+     .Filter.ByExcluding(logEvent =>
         logEvent.Properties.TryGetValue("SourceContext", out var sourceContext) &&
         (sourceContext.ToString().Contains("Microsoft") ||
          sourceContext.ToString().Contains("System") ||
@@ -122,7 +128,7 @@ Log.Logger = new LoggerConfiguration()
     .WriteTo.PostgreSQL(
         connectionString: builder.Configuration.GetValue<string>("LogConnectionString"),
         tableName: "Logs",
-        needAutoCreateTable: true,              
+        needAutoCreateTable: true,
         columnOptions: columnWriters
     )
     .CreateLogger();
@@ -131,23 +137,23 @@ builder.Host.UseSerilog();
 
 builder.Services.AddMassTransit(x =>
 {
-     x.AddConsumer<LogConsumer>();
+    x.AddConsumer<LogConsumer>();
 
     x.UsingRabbitMq((context, cfg) =>
     {
-         cfg.UseNewtonsoftJsonSerializer();
+        cfg.UseNewtonsoftJsonSerializer();
         cfg.UseNewtonsoftJsonDeserializer();
 
-         cfg.Host(rabbitMQConfig.Host, h =>
-        {
-            h.Username(rabbitMQConfig.Username);
-            h.Password(rabbitMQConfig.Password);
-        });
- 
+        cfg.Host(rabbitMQConfig.Host, h =>
+       {
+           h.Username(rabbitMQConfig.Username);
+           h.Password(rabbitMQConfig.Password);
+       });
+
         cfg.ReceiveEndpoint("log_message_queue", e =>
         {
             e.ConfigureConsumeTopology = false;
-             e.Bind("log-message");
+            e.Bind("log-message");
             e.ConfigureConsumer<LogConsumer>(context);
         });
     });
@@ -157,31 +163,32 @@ builder.Services.AddMassTransit(x =>
 builder.Services.AddMassTransitHostedService();
 
 
-//builder.Services.AddHangfire(configuration => configuration
-// .SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
-//            .UseSimpleAssemblyNameTypeSerializer()
-//            .UseRecommendedSerializerSettings()
-//        .UsePostgreSqlStorage(builder.Configuration.GetValue<string>("HangFireConnectionString")));
-//builder.Services.AddHangfireServer();
+builder.Services.AddHangfire(configuration => configuration
+ .SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
+            .UseSimpleAssemblyNameTypeSerializer()
+            .UseRecommendedSerializerSettings()
+        .UsePostgreSqlStorage(builder.Configuration.GetSection("ConnectionStrings:HangFireConnectionString").Value));
+builder.Services.AddHangfireServer();
 
 
-//builder.Services.AddTransient<CleanOldLogJobs>();
+builder.Services.AddTransient<CleanOldLogJobs>();
 
 var app = builder.Build();
 
 
-//using (var scope = app.Services.CreateScope())
-//{
-//    var jobScheduler = scope.ServiceProvider.GetRequiredService<CleanOldLogJobs>();
-//    jobScheduler.CleanLogs();
-//}
+using (var scope = app.Services.CreateScope())
+{
+    var jobScheduler = scope.ServiceProvider.GetRequiredService<CleanOldLogJobs>();
+    jobScheduler.CleanLogs();
+}
 
 //if (app.Environment.IsDevelopment())
 //{
-    app.UseSwagger();
-    app.UseSwaggerUI();
+app.UseSwagger();
+app.UseSwaggerUI();
 //  }
-//app.UseHangfireDashboard();
+
+app.UseHangfireDashboard();
 
 app.UseHttpsRedirection();
 
@@ -190,3 +197,43 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+ 
+     bool DatabaseExists(string databaseName, string connectionString)
+{
+    using var connection = new NpgsqlConnection(connectionString);
+    connection.Open();
+
+    var commandText = @"
+        SELECT 1 FROM pg_database 
+        WHERE datname = @databaseName";
+
+    using var command = new NpgsqlCommand(commandText, connection);
+    command.Parameters.AddWithValue("@databaseName", databaseName);
+
+    return command.ExecuteScalar() != null;
+}
+
+     void CreateDatabase(string databaseName, string connectionString)
+{
+    try
+    {
+         var builder = new NpgsqlConnectionStringBuilder(connectionString)
+        {
+            Database = "postgres"   
+        };
+
+        using var connection = new NpgsqlConnection(builder.ConnectionString);
+        connection.Open();
+
+        var createCommand = $"CREATE DATABASE \"{databaseName}\"";
+        using var cmd = new NpgsqlCommand(createCommand, connection);
+        cmd.ExecuteNonQuery();
+        Console.WriteLine($"Created database {databaseName}");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Error creating database {databaseName}: {ex.Message}");
+    }
+}
+
