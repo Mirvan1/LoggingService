@@ -9,6 +9,7 @@ using Hangfire;
 using LoggingService.Core.Jobs;
 using System.Runtime.InteropServices;
 using LoggingService.Domain;
+using Microsoft.Data.SqlClient;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
@@ -17,8 +18,56 @@ builder.Logging.AddConsole();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+string createLoggingDB = "CREATE DATABASE LoggingDB";
+string createHangFireDB = "CREATE DATABASE HangFireLoggingDB";
+
+
+
+try
+{
+    using (SqlConnection connection = new SqlConnection(builder.Configuration.GetValue<string>("LogConnectionString")))
+    {
+        connection.Open();
+
+         using (SqlCommand command = new SqlCommand(createLoggingDB, connection))
+        {
+            command.ExecuteNonQuery();
+         }
+
+    }
+}
+catch (Exception ex)
+{
+    Console.WriteLine("Error: " + ex.Message);
+}
+
+
+
+try
+{
+    using (SqlConnection connection = new SqlConnection(builder.Configuration.GetValue<string>("HangFireConnectionString")))
+    {
+        connection.Open();
+
+        using (SqlCommand command = new SqlCommand(createHangFireDB, connection))
+        {
+            command.ExecuteNonQuery();
+        }
+
+    }
+}
+catch (Exception ex)
+{
+    Console.WriteLine("Error: " + ex.Message);
+}
+
+
+
 
 builder.Services.AddScoped<ILogSevice,LogService> ();
+
+
+
 
 
 var columnOptions = new ColumnOptions
