@@ -9,8 +9,14 @@ services:
     ports:
       - "8081:80"
     environment:
-      - ConnectionStrings__LogConnectionString=Server=db,1433;Database=LoggingDB;User Id=sa;Password=DockerDbPassword12345.!;TrustServerCertificate=true;
-      - ConnectionStrings__HangFireConnectionString=Server=db,1433;Database=HangFireLoggingDB;User Id=sa;Password=DockerDbPassword12345.!;TrustServerCertificate=true;
+      - ConnectionStrings__AdminConnectionString=Host=db;Database=postgres;Username=postgres;Password=postgres
+      - ConnectionStrings__LogConnectionString=Host=db;Database=LoggingDB;Username=postgres;Password=postgres
+      - ConnectionStrings__HangFireConnectionString=Host=db;Database=HangFireLoggingDB;Username=postgres;Password=postgres
+      - RabbitMQConfig__Host=rabbitmq
+      - RabbitMQConfig__Username=guest
+      - RabbitMQConfig__Password=guest
+      - SeqUrl=http://seq:5341
+
     depends_on:
       db:
         condition: service_healthy
@@ -29,17 +35,17 @@ services:
       RABBITMQ_DEFAULT_PASS: guest
 
   db:
-    image: mcr.microsoft.com/mssql/server:2022-latest
+    image: postgres:15
     environment:
-      MSSQL_SA_PASSWORD: "DockerDbPassword12345.!"
-      ACCEPT_EULA: "Y"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
     ports:
-      - "1434:1433"
+      - "5432:5432"
     volumes:
-      - sqlvolume:/var/opt/mssql
-      - ./sql-init:/docker-entrypoint-initdb.d
+      - db_data:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD", "/opt/mssql-tools/bin/sqlcmd", "-S", "localhost", "-U", "sa", "-P", "DockerDbPassword12345.!", "-Q", "SELECT 1" ]
+      test: ["CMD-SHELL", "pg_isready -U postgres -h localhost"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -55,5 +61,9 @@ services:
       - seqdata:/data:z
 
 volumes:
-  sqlvolume:
+  db_data:
   seqdata:
+
+
+
+

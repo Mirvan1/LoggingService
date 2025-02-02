@@ -2,14 +2,15 @@
 using LoggingService.Core;
 using MassTransit;
 using Serilog;
-using Serilog.Sinks.MSSqlServer;
 using System.Collections.ObjectModel;
 using Newtonsoft.Json.Linq;
 using Hangfire;
 using LoggingService.Core.Jobs;
 using System.Runtime.InteropServices;
 using LoggingService.Domain;
-using Microsoft.Data.SqlClient;
+using Npgsql;
+using Serilog.Sinks.PostgreSQL;
+using Hangfire.PostgreSql;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
@@ -23,43 +24,44 @@ string createHangFireDB = "CREATE DATABASE HangFireLoggingDB";
 
 
 
-try
-{
-    using (SqlConnection connection = new SqlConnection(builder.Configuration.GetValue<string>("LogConnectionString")))
-    {
-        connection.Open();
+string adminConn = builder.Configuration.GetConnectionString("AdminConnectionString");
 
-         using (SqlCommand command = new SqlCommand(createLoggingDB, connection))
-        {
-            command.ExecuteNonQuery();
-         }
+//try
+//{
 
-    }
-}
-catch (Exception ex)
-{
-    Console.WriteLine("Error: " + ex.Message);
-}
+//    // var adminConnectionString = builder.Configuration.GetValue<string>("LogConnectionString");
+//    using var connection = new NpgsqlConnection(adminConn);
+//    connection.Open();
+
+//    using (var command = new NpgsqlCommand(createLoggingDB, connection))
+//    {
+//        command.ExecuteNonQuery();
+//    }
+
+//}
+//catch (Exception ex)
+//{
+//    Console.WriteLine("Error " + ex.Message);
+//}
 
 
 
-try
-{
-    using (SqlConnection connection = new SqlConnection(builder.Configuration.GetValue<string>("HangFireConnectionString")))
-    {
-        connection.Open();
+//try
+//{
+//    //   var adminConnectionString = builder.Configuration.GetValue<string>("HangFireConnectionString");
+//    using var connection = new NpgsqlConnection(adminConn);
+//    connection.Open();
 
-        using (SqlCommand command = new SqlCommand(createHangFireDB, connection))
-        {
-            command.ExecuteNonQuery();
-        }
+//    using (var command = new NpgsqlCommand(createHangFireDB, connection))
+//    {
+//        command.ExecuteNonQuery();
+//    }
 
-    }
-}
-catch (Exception ex)
-{
-    Console.WriteLine("Error: " + ex.Message);
-}
+//}
+//catch (Exception ex)
+//{
+//    Console.WriteLine("Erro: " + ex.Message);
+//}
 
 
 
@@ -70,45 +72,58 @@ builder.Services.AddScoped<ILogSevice,LogService> ();
 
 
 
-var columnOptions = new ColumnOptions
-{
-    AdditionalColumns = new Collection<SqlColumn>
-    {
-        new SqlColumn { ColumnName = "ServiceName", DataType = System.Data.SqlDbType.NVarChar, DataLength = 128 },
-        new SqlColumn { ColumnName = "LogLevel", DataType = System.Data.SqlDbType.NVarChar, DataLength = 50 },
-        new SqlColumn { ColumnName = "LogMessage", DataType = System.Data.SqlDbType.NVarChar, DataLength = -1 }, 
-        new SqlColumn { ColumnName = "LogId", DataType = System.Data.SqlDbType.NVarChar, DataLength = -1 }
+//var columnOptions = new ColumnOptions
+//{
+//    AdditionalColumns = new Collection<SqlColumn>
+//    {
+//        new SqlColumn { ColumnName = "ServiceName", DataType = System.Data.SqlDbType.NVarChar, DataLength = 128 },
+//        new SqlColumn { ColumnName = "LogLevel", DataType = System.Data.SqlDbType.NVarChar, DataLength = 50 },
+//        new SqlColumn { ColumnName = "LogMessage", DataType = System.Data.SqlDbType.NVarChar, DataLength = -1 }, 
+//        new SqlColumn { ColumnName = "LogId", DataType = System.Data.SqlDbType.NVarChar, DataLength = -1 }
 
-    }
+//    }
+//};
+
+var columnWriters = new Dictionary<string, ColumnWriterBase>
+{
+    { "timestamp", new TimestampColumnWriter() }, // default
+    { "level", new LevelColumnWriter() },
+    { "message", new RenderedMessageColumnWriter() },
+    { "exception", new ExceptionColumnWriter() },
+
+    // Additional columns that you want to store
+    { "ServiceName", new RenderedMessageColumnWriter() },
+    { "LogLevel", new RenderedMessageColumnWriter() },
+    { "LogMessage", new RenderedMessageColumnWriter() },
+    { "LogId", new RenderedMessageColumnWriter() }
 };
+
 var rabbitMQConfig = builder.Configuration
     .GetSection("RabbitMQConfig")
     .Get<RabbitMQConfig>();
 
 
 Log.Logger = new LoggerConfiguration()
-      .MinimumLevel.Debug()
+    .MinimumLevel.Debug()
     .WriteTo.Console()
-        .WriteTo.Seq(builder.Configuration.GetValue<string>("SeqUrl"))
-
-        .Enrich.FromLogContext()
+    .WriteTo.Seq(builder.Configuration.GetValue<string>("SeqUrl"))
+    .Enrich.FromLogContext()
     .Enrich.WithProperty("Environment", builder.Environment.EnvironmentName)
- .Filter.ByExcluding(logEvent =>
+    // Filtering out logs from certain namespaces if desired:
+    .Filter.ByExcluding(logEvent =>
         logEvent.Properties.TryGetValue("SourceContext", out var sourceContext) &&
-        (sourceContext.ToString().Contains("Microsoft") || sourceContext.ToString().Contains("System") || sourceContext.ToString().Contains("MassTransit")
-        || sourceContext.ToString().Contains("Hangfire")
-        || sourceContext.ToString().Contains("Hangfire.Server")
-)
-    ).WriteTo.Console()
-    .WriteTo.MSSqlServer(
+        (sourceContext.ToString().Contains("Microsoft") ||
+         sourceContext.ToString().Contains("System") ||
+         sourceContext.ToString().Contains("MassTransit") ||
+         sourceContext.ToString().Contains("Hangfire") ||
+         sourceContext.ToString().Contains("Hangfire.Server")
+        )
+    )
+    .WriteTo.PostgreSQL(
         connectionString: builder.Configuration.GetValue<string>("LogConnectionString"),
-        sinkOptions: new MSSqlServerSinkOptions
-        {
-            TableName = "Logs",
-            AutoCreateSqlTable = true
-        },
-        columnOptions: columnOptions,
-        restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Information
+        tableName: "Logs",
+        needAutoCreateTable: true,              
+        columnOptions: columnWriters
     )
     .CreateLogger();
 
@@ -137,34 +152,36 @@ builder.Services.AddMassTransit(x =>
         });
     });
 });
+
+
 builder.Services.AddMassTransitHostedService();
 
 
-builder.Services.AddHangfire(configuration => configuration
- .SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
-            .UseSimpleAssemblyNameTypeSerializer()
-            .UseRecommendedSerializerSettings()
-        .UseSqlServerStorage(builder.Configuration.GetValue<string>("HangFireConnectionString")));
-builder.Services.AddHangfireServer();
+//builder.Services.AddHangfire(configuration => configuration
+// .SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
+//            .UseSimpleAssemblyNameTypeSerializer()
+//            .UseRecommendedSerializerSettings()
+//        .UsePostgreSqlStorage(builder.Configuration.GetValue<string>("HangFireConnectionString")));
+//builder.Services.AddHangfireServer();
 
 
-builder.Services.AddTransient<CleanOldLogJobs>();
+//builder.Services.AddTransient<CleanOldLogJobs>();
 
 var app = builder.Build();
 
 
-using (var scope = app.Services.CreateScope())
-{
-    var jobScheduler = scope.ServiceProvider.GetRequiredService<CleanOldLogJobs>();
-    jobScheduler.CleanLogs();
-}
+//using (var scope = app.Services.CreateScope())
+//{
+//    var jobScheduler = scope.ServiceProvider.GetRequiredService<CleanOldLogJobs>();
+//    jobScheduler.CleanLogs();
+//}
 
 //if (app.Environment.IsDevelopment())
 //{
     app.UseSwagger();
     app.UseSwaggerUI();
 //  }
-app.UseHangfireDashboard();
+//app.UseHangfireDashboard();
 
 app.UseHttpsRedirection();
 
